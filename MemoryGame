@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Memory Game</title>
+    <script src="https://unpkg.com/@farcade/game-sdk@latest/dist/index.min.js"></script>
+    <style>
+      /* [Previous CSS unchanged, included for completeness] */
+      * {
+        padding: 0;
+        margin: 0;
+        box-sizing: border-box;
+        font-family: "Poppins", sans-serif;
+      }
+      body {
+        background-color: #f4c531;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        padding: 5px;
+      }
+      .wrapper {
+        text-align: center;
+        background: white;
+        padding: 15px;
+        border-radius: 10px;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+        width: 100%;
+        max-width: 600px;
+      }
+      .game-container {
+        display: grid;
+        gap: 5px;
+        margin-top: 15px;
+        grid-template-columns: repeat(auto-fit, minmax(60px, 1fr));
+      }
+      .card {
+        aspect-ratio: 1 / 1;
+        background: #f4c531;
+        cursor: pointer;
+        border-radius: 5px;
+        position: relative;
+        overflow: hidden;
+      }
+      .card-content {
+        width: 100%;
+        height: 100%;
+        position: absolute;
+        top: 0;
+        left: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .card-content img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+      .card-content span {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 48px;
+      }
+      .card:not(.flipped) .card-content {
+        display: none;
+      }
+      .hide {
+        display: none;
+      }
+      .stats {
+        margin: 10px 0;
+      }
+      .game-over {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.8);
+        color: white;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        font-size: 20px;
+        display: none;
+      }
+      @media (max-width: 480px) {
+        .wrapper {
+          padding: 10px;
+          margin: 0 5px;
+        }
+        .game-container {
+          gap: 3px;
+          grid-template-columns: repeat(auto-fit, minmax(50px, 1fr));
+        }
+        .card-content span {
+          font-size: 32px;
+        }
+        h2 {
+          font-size: 18px;
+        }
+        .stats {
+          font-size: 14px;
+        }
+        .game-over {
+          font-size: 16px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrapper">
+      <h2>Memory Game</h2>
+      <div class="stats">Time: <span id="time">60</span> | Score: <span id="score">0</span></div>
+      <div id="game-container" class="game-container"></div>
+    </div>
+    <div id="game-over" class="game-over">
+      <p>Game Over! Score: <span id="final-score">0</span></p>
+      <button id="play-again-btn" class="restart-btn">Play Again</button>
+    </div>
+    <script>
+      document.addEventListener("DOMContentLoaded", () => {
+        if (!window.FarcadeSDK) {
+          console.error("Farcade SDK not loaded");
+          return;
+        }
+
+        const gameContainer = document.getElementById("game-container");
+        const timeElem = document.getElementById("time");
+        const scoreElem = document.getElementById("score");
+        const finalScoreElem = document.getElementById("final-score");
+        const gameOverScreen = document.getElementById("game-over");
+        const playAgainBtn = document.getElementById("play-again-btn");
+
+        let baseTime = 60,
+          time = baseTime,
+          score = 0,
+          interval,
+          matchedPairs = 0;
+        let firstCard = null,
+          secondCard = null;
+        let isProcessing = false,
+          isMuted = false;
+        let difficulty = 4;
+
+        // Audio setup with error handling
+        const flipSound = new Audio();
+        flipSound.src =
+          "https://lqy3lriiybxcejon.public.blob.vercel-storage.com/fNjUfl4onVRf/FlipCard-njKu7BLGu72SonJWGqnSYCDdgboePg.mpeg";
+        flipSound.volume = 0.15;
+        flipSound.onerror = () => console.error("Failed to load flip sound");
+
+        const nextLevelSound = new Audio();
+        nextLevelSound.src =
+          "https://lqy3lriiybxcejon.public.blob.vercel-storage.com/fNjUfl4onVRf/NextLevel-LvLuknyePrfavnQ95z0Qt7wlZEOFFD.mpeg";
+        nextLevelSound.volume = 0.15;
+        nextLevelSound.onerror = () => console.error("Failed to load next level sound");
+
+        const images = [
+          "https://lqy3lriiybxcejon.public.blob.vercel-storage.com/fNjUfl4onVRf/tiger-pUryqK8IDgqhredLkLJgziadiH2FXK.png",
+          "https://lqy3lriiybxcejon.public.blob.vercel-storage.com/fNjUfl4onVRf/bee-EAdgCYEE9t1sthkaboY3iSsvVeudus.png",
+          "https://lqy3lriiybxcejon.public.blob.vercel-storage.com/fNjUfl4onVRf/fish-a1YIvOYagUetUwAS8ViE2ROiI3p2fP.png",
+          "https://lqy3lriiybxcejon.public.blob.vercel-storage.com/fNjUfl4onVRf/monkey-o1Gv8evKXEnPk4PZIG3Wsc1eMqDbb4.png",
+        ];
+
+        const emojis = ["🐘", "🦁", "🦒", "🐼", "🐻", "🐍", "🐳", "🦅", "🦋", "🐙", "🦀", "🐢"];
+
+        function startTimer() {
+          clearInterval(interval);
+          interval = setInterval(() => {
+            time--;
+            timeElem.textContent = time;
+            if (time <= 0) {
+              clearInterval(interval);
+              endGame();
+            }
+          }, 1000);
+        }
+
+        function createCard(value, isImage) {
+          const card = document.createElement("div");
+          card.classList.add("card");
+          card.dataset.value = value;
+
+          const content = document.createElement("div");
+          content.classList.add("card-content");
+
+          if (isImage) {
+            const img = document.createElement("img");
+            img.src = value;
+            img.onerror = () => {
+              console.error(`Failed to load image: ${value}`);
+              content.innerHTML = emojis[0];
+              card.dataset.value = emojis[0];
+            };
+            content.appendChild(img);
+          } else {
+            const span = document.createElement("span");
+            span.textContent = value;
+            content.appendChild(span);
+          }
+
+          card.appendChild(content);
+          card.addEventListener("click", flipCard);
+          return card;
+        }
+
+        function startGame() {
+          clearInterval(interval);
+          gameContainer.innerHTML = "";
+          matchedPairs = 0;
+          timeElem.textContent = time;
+          scoreElem.textContent = score;
+          gameOverScreen.style.display = "none";
+
+          const pairsNeeded = difficulty / 2;
+          let deck = [...images];
+
+          if (pairsNeeded > images.length) {
+            const extraPairsNeeded = pairsNeeded - images.length;
+            deck = deck.concat(emojis.slice(0, extraPairsNeeded));
+          }
+
+          if (deck.length > pairsNeeded) {
+            deck = deck.slice(0, pairsNeeded);
+          }
+
+          deck = [...deck, ...deck];
+          deck.sort(() => Math.random() - 0.5);
+
+          deck.forEach((value) => {
+            const isImage = images.includes(value);
+            const card = createCard(value, isImage);
+            gameContainer.appendChild(card);
+          });
+
+          if (!isMuted) {
+            nextLevelSound.play().catch((e) => console.error("Next level sound error:", e));
+          }
+          startTimer();
+          window.FarcadeSDK.singlePlayer.actions.ready();
+        }
+
+        function flipCard() {
+          if (!this || this.classList.contains("flipped") || isProcessing || time <= 0) return;
+          if (!isMuted) {
+            flipSound.play().catch((e) => console.error("Flip sound error:", e));
+          }
+          this.classList.add("flipped");
+          window.FarcadeSDK.singlePlayer.actions.hapticFeedback();
+
+          if (!firstCard) {
+            firstCard = this;
+          } else {
+            secondCard = this;
+            isProcessing = true;
+            if (firstCard.dataset.value === secondCard.dataset.value) {
+              matchedPairs++;
+              score += 10 * (difficulty / 2);
+              scoreElem.textContent = score;
+              firstCard = secondCard = null;
+              isProcessing = false;
+              if (matchedPairs === difficulty / 2) {
+                time += 10;
+                timeElem.textContent = time;
+                difficulty += 2;
+                setTimeout(() => {
+                  startGame();
+                }, 1000);
+              }
+            } else {
+              setTimeout(() => {
+                firstCard.classList.remove("flipped");
+                secondCard.classList.remove("flipped");
+                firstCard = secondCard = null;
+                isProcessing = false;
+              }, 1000);
+            }
+          }
+        }
+
+        function endGame() {
+          gameOverScreen.style.display = "flex";
+          finalScoreElem.textContent = score;
+          window.FarcadeSDK.singlePlayer.actions.gameOver({ score: score });
+        }
+
+        function toggleMute(data) {
+          isMuted = data;
+          console.log("Mute toggled via Farcade:", data);
+        }
+
+        playAgainBtn.addEventListener("click", () => {
+          time = baseTime;
+          score = 0;
+          difficulty = 4;
+          gameOverScreen.style.display = "none";
+          startGame();
+        });
+
+        window.FarcadeSDK.on("play_again", () => {
+          console.log("Farcade triggered play_again event");
+          time = baseTime;
+          score = 0;
+          difficulty = 4;
+          gameOverScreen.style.display = "none";
+          startGame();
+        });
+
+        window.FarcadeSDK.on("toggle_mute", (data) => {
+          toggleMute(data.isMuted);
+        });
+
+        console.log("Starting game with Farcade SDK version:", window.FarcadeSDK.version || "unknown");
+        startGame();
+      });
+    </script>
+  </body>
+</html>
