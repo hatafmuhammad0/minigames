@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Endless Deal Dash</title>
+    <script src="https://unpkg.com/@farcade/game-sdk@latest/dist/index.min.js"></script>
+    <style>
+      body {
+        margin: 0;
+        overflow: hidden;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        background-color: #1a1a1a;
+        touch-action: none;
+        font-family: Arial, sans-serif;
+      }
+      canvas {
+        display: block;
+      }
+      #startScreen,
+      #gameOverScreen {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.8);
+        color: gold;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        cursor: pointer;
+      }
+      #startScreen span,
+      #gameOverScreen span {
+        font-size: 32px;
+        margin: 10px;
+      }
+      #dealButton,
+      #noDealButton {
+        position: absolute;
+        bottom: 20px;
+        padding: 10px 20px;
+        font-size: 20px;
+        cursor: pointer;
+        border: none;
+        border-radius: 5px;
+      }
+      #dealButton {
+        left: 20px;
+        background-color: #4caf50;
+        color: white;
+      }
+      #noDealButton {
+        right: 20px;
+        background-color: #f44336;
+        color: white;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="startScreen">
+      <span>Endless Deal Dash</span>
+      <span>Tap to Start</span>
+    </div>
+    <div id="gameOverScreen" style="display: none">
+      <span>Game Over</span>
+      <span id="finalScore"></span>
+      <span>Tap to Restart</span>
+    </div>
+    <canvas id="gameCanvas"></canvas>
+    <button id="dealButton" style="display: none">Deal</button>
+    <button id="noDealButton" style="display: none">No Deal</button>
+    <script>
+      const canvas = document.getElementById("gameCanvas");
+      const ctx = canvas.getContext("2d");
+      const startScreen = document.getElementById("startScreen");
+      const gameOverScreen = document.getElementById("gameOverScreen");
+      const dealButton = document.getElementById("dealButton");
+      const noDealButton = document.getElementById("noDealButton");
+
+      canvas.width = 360;
+      canvas.height = 640;
+
+      let gameStarted = false;
+      let gameOver = false;
+      let score = 0;
+      let offerInterval = 3000;
+      let lastOfferTime = 0;
+      let isMuted = false;
+      let revealTimer = null;
+
+      const minValue = 1;
+      const maxValue = 100; // Max case and offer value
+      let currentCase = null;
+      let bankerOffer = 0;
+
+      function spawnCase() {
+        const value = Math.floor(Math.random() * (maxValue - minValue + 1)) + minValue; // Random $1-$100
+        currentCase = { value, revealed: false, flipProgress: 0 };
+
+        // Banker offer within ±$10 of case value, clamped to $1-$100
+        const minOffer = Math.max(minValue, value - 10);
+        const maxOffer = Math.min(maxValue, value + 10);
+        bankerOffer = Math.floor(Math.random() * (maxOffer - minOffer + 1)) + minOffer;
+
+        console.log(`New Case: $${value}, Offer: $${bankerOffer}`);
+      }
+
+      function drawCase() {
+        if (!currentCase) return;
+
+        ctx.save();
+        ctx.translate(canvas.width / 2, canvas.height / 2);
+        const flipScale = Math.abs(Math.cos(currentCase.flipProgress));
+        ctx.scale(flipScale, 1);
+
+        ctx.fillStyle = currentCase.revealed && currentCase.flipProgress >= Math.PI / 2 ? "gray" : "silver";
+        ctx.fillRect(-50, -75, 100, 150);
+
+        ctx.fillStyle = "black";
+        ctx.font = "24px Arial";
+        ctx.textAlign = "center";
+        if (currentCase.revealed && currentCase.flipProgress >= Math.PI / 2) {
+          ctx.fillText(`$${currentCase.value}`, 0, 0);
+        } else {
+          ctx.fillText("?", 0, 0);
+        }
+
+        ctx.restore();
+      }
+
+      function drawOffer() {
+        ctx.fillStyle = "gold";
+        ctx.font = "32px Arial";
+        ctx.textAlign = "center";
+        ctx.fillText(`Banker Offers: $${bankerOffer}`, canvas.width / 2, 100);
+      }
+
+      function drawScore() {
+        ctx.fillStyle = "white";
+        ctx.font = "24px Arial";
+        ctx.textAlign = "left";
+        ctx.fillText(`Score: $${score}`, 20, 40);
+      }
+
+      function updateGame(timestamp) {
+        if (!gameStarted || gameOver) return;
+
+        if (timestamp - lastOfferTime >= offerInterval && !currentCase) {
+          spawnCase();
+          dealButton.style.display = "block";
+          noDealButton.style.display = "block";
+          lastOfferTime = timestamp;
+        }
+
+        if (currentCase && currentCase.revealed && currentCase.flipProgress < Math.PI) {
+          currentCase.flipProgress += 0.1;
+        }
+      }
+
+      function resetGame() {
+        score = 0;
+        offerInterval = 3000;
+        gameOver = false;
+        gameStarted = false;
+        currentCase = null;
+        revealTimer = null;
+        dealButton.style.display = "none";
+        noDealButton.style.display = "none";
+        startScreen.style.display = "flex";
+        gameOverScreen.style.display = "none";
+      }
+
+      function startGame() {
+        if (!gameStarted) {
+          gameStarted = true;
+          startScreen.style.display = "none";
+          lastOfferTime = performance.now();
+          window.FarcadeSDK.singlePlayer.actions.hapticFeedback();
+        }
+      }
+
+      function gameLoop(timestamp) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        drawCase();
+        drawOffer();
+        drawScore();
+        if (!gameOver) updateGame(timestamp);
+
+        if (gameOver) {
+          gameOverScreen.style.display = "flex";
+          document.getElementById("finalScore").textContent = `Final Score: $${score}`;
+          dealButton.style.display = "none";
+          noDealButton.style.display = "none";
+        }
+
+        requestAnimationFrame(gameLoop);
+      }
+
+      function revealAndDecide(isDeal) {
+        if (!currentCase || gameOver) return;
+        currentCase.revealed = true;
+        dealButton.style.display = "none";
+        noDealButton.style.display = "none";
+
+        revealTimer = setTimeout(() => {
+          if (isDeal) {
+            console.log(`Deal Chosen: Case Value: $${currentCase.value}, Offer: $${bankerOffer}`);
+            if (bankerOffer < currentCase.value) {
+              gameOver = true;
+              console.log(`Game Over: Offer ($${bankerOffer}) < Case ($${currentCase.value}), Final Score: $${score}`);
+              window.FarcadeSDK.singlePlayer.actions.gameOver({ score: score });
+            } else {
+              score += bankerOffer;
+              console.log(`Continue: Offer ($${bankerOffer}) >= Case ($${currentCase.value}), New Score: $${score}`);
+              offerInterval = Math.max(1000, offerInterval * 0.95);
+              currentCase = null;
+            }
+          } else {
+            console.log(`No Deal Chosen: Case Value: $${currentCase.value}, Offer: $${bankerOffer}`);
+            if (currentCase.value < bankerOffer) {
+              gameOver = true;
+              console.log(`Game Over: Case ($${currentCase.value}) < Offer ($${bankerOffer}), Final Score: $${score}`);
+              window.FarcadeSDK.singlePlayer.actions.gameOver({ score: score });
+            } else {
+              score += currentCase.value;
+              console.log(`Continue: Case ($${currentCase.value}) >= Offer ($${bankerOffer}), New Score: $${score}`);
+              offerInterval = Math.max(1000, offerInterval * 0.95);
+              currentCase = null;
+            }
+          }
+          window.FarcadeSDK.singlePlayer.actions.hapticFeedback();
+          revealTimer = null;
+        }, 1000);
+      }
+
+      function acceptDeal() {
+        revealAndDecide(true);
+      }
+
+      function rejectDeal() {
+        revealAndDecide(false);
+      }
+
+      startScreen.addEventListener("click", startGame);
+      startScreen.addEventListener("touchstart", (e) => {
+        e.preventDefault();
+        startGame();
+      });
+
+      dealButton.addEventListener("click", acceptDeal);
+      dealButton.addEventListener("touchstart", (e) => {
+        e.preventDefault();
+        acceptDeal();
+      });
+
+      noDealButton.addEventListener("click", rejectDeal);
+      noDealButton.addEventListener("touchstart", (e) => {
+        e.preventDefault();
+        rejectDeal();
+      });
+
+      gameOverScreen.addEventListener("click", () => {
+        resetGame();
+        startGame();
+      });
+      gameOverScreen.addEventListener("touchstart", (e) => {
+        e.preventDefault();
+        resetGame();
+        startGame();
+      });
+
+      window.FarcadeSDK.on("play_again", () => {
+        resetGame();
+        startGame();
+      });
+
+      window.FarcadeSDK.on("toggle_mute", (data) => {
+        isMuted = data.isMuted;
+      });
+
+      gameLoop(performance.now());
+      window.FarcadeSDK.singlePlayer.actions.ready();
+    </script>
+  </body>
+</html>
